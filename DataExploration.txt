@@ -1,0 +1,175 @@
+/*How many rolls were ordered?*/
+
+SELECT count(order_id) FROM fasoos.customer_orders;
+
+/* How many unique customers were there?*/
+
+select  count(distinct customer_id) from fasoos.customer_orders;
+
+/*Are there any repeating customers?*/
+
+select customer_id,count(distinct order_id) as count_of_orders 
+from fasoos.customer_orders 
+group by (customer_id);
+
+/*Who is the most loyal Customer?*/
+
+select customer_id,count(distinct order_id) as count_of_orders 
+from fasoos.customer_orders 
+group by (customer_id)
+order by count_of_orders desc
+limit 1;
+
+/* How many of each rolls were ordered by each customer?*/
+(can help us determine discount on which roll shold be given to which customer)
+
+select customer_id,roll_name,count
+from
+(select customer_id,roll_id,count(roll_id) as count
+from customer_orders
+group by 1,2) as a
+join rolls as r
+using(roll_id)
+order by customer_id;
+
+/* Which is the more popular Roll?*/
+
+select roll_name,count
+from
+(select roll_id,count(roll_id) as count
+from customer_orders
+group by 1) as a
+join rolls as r
+using(roll_id);
+
+/* How many successful orders were delivered by each driver?*/
+
+select driver_id, count(cancel_order_details)
+from(
+select *,case when cancellation in('Cancellation','Customer Cancellation') then 'cn'
+else 'not cn'
+end as cancel_order_details
+from fasoos.driver_order) as c
+where cancel_order_details not in ('cn')
+group by 1;
+
+/* How many of each type of roll was delivered?*/
+
+with cte as(
+select roll_id,count(roll_id) as count
+from(
+select *,case when cancellation in('Cancellation','Customer Cancellation') then 'cn'
+else 'not cn'
+end as cancel_order_details
+from fasoos.driver_order) as d
+join customer_orders as c
+on c.order_id=d.order_id
+where cancel_order_details!='cn'
+group by 1)
+
+select roll_name,count
+from cte as c
+join rolls as r
+using(roll_id);
+
+/* what was the maximum number of rolls delievered in a single order?*/
+ with cte as(
+ select order_id,count(roll_id) as count
+ from customer_orders
+ where order_id in (select order_id
+ from(
+ select *,case when cancellation in ('Cancellation','Customer Cancellation') then 'cn'
+ else 'not cn'
+ end as cancel_order_details
+ from driver_order) as a
+ where cancel_order_details !='cn' )
+ group by 1)
+ select max(count) as maximum_rolls 
+ from cte;
+
+/* for each customer how many rolls had atleast one change and how many had no changes?*/
+
+with cte as(
+select *,case when new_not_include_items='' and new_extra_items_included='' or new_extra_items_included='Nan'
+then 1  else 0 end as not_added_or_removed,
+case when new_not_include_items!='' or new_extra_items_included not in('','Nan')
+then 1 else 0 end as added_or_removed
+from(
+select *,coalesce(not_include_items,'') as new_not_include_items,coalesce(extra_items_included,'') as new_extra_items_included
+from customer_orders) as a)
+ 
+
+ 
+ select customer_id,sum(added_or_removed) as made_changes,sum(not_added_or_removed) as no_changes
+ from cte 
+ where order_id in   (
+select order_id
+from(
+select*,case when cancellation in ('Cancellation','Customer Cancellation') then 'cn'
+else 'not cn'
+end as cancel_order_details
+from driver_order) as a
+where cancel_order_details !='cn') 
+ group by 1;
+
+/*how many of the successfully delivered orders had both exclusions and extra_included?*/
+
+with temp_driver_order(order_id,driver_id,pickup_time,distance,duration,cancellation) as
+ (select order_id,driver_id,pickup_time,distance,duration,case when cancellation in ('Cancellation','Customer Cancellation') then 'cn'
+else 'not cn'
+end as cancellation
+from driver_order),
+
+
+temp_customer_order(order_id,customer_id,roll_id,not_include_items,extra_items_included,order_date) as
+( select order_id,customer_id,roll_id,
+case when not_include_items='' or not_include_items is null  then '0' else not_include_items end as not_include_items,
+case when extra_items_included is null or extra_items_included='' or extra_items_included='NaN' then '0' else extra_items_included end as
+extra_items_included,order_date
+from customer_orders)
+select added_and_removed,count(order_id)
+from
+(select *,case when not_include_items!='0' and extra_items_included!='0' then 'both_changed'
+else 'not' 
+end as added_and_removed
+from temp_customer_order
+where order_id in (select order_id from temp_driver_order where cancellation<>'cn'))a
+group by 1;
+
+/*What was the total number of rolls ordered for each hour of the day*/?
+
+select hr,count(order_id)
+from(
+select *, concat(cast(hour(order_date) as char) ,'-',cast(hour(order_date)+1 as char)) as hr
+from customer_orders) as a
+group by 1;
+
+/* what was the average time it took for each driver to arrive at fasoos HQ to pick up the order ?*/
+
+with cte as(
+select 
+driver_id,
+order_id,round(avg(diff),2 )as diff
+
+from(
+select c.order_id,c.roll_id,order_date,c.customer_id,d.driver_id,pickup_time,
+timestampdiff(MINUTE,order_date,pickup_time) diff
+
+from customer_orders as c
+join driver_order as d
+on c.order_id=d.order_id
+where pickup_time is not null
+) as a
+group by 1,2)
+select driver_id,avg(diff) as average_time
+from cte;
+
+ 
+ 
+ 
+ 
+ 
+
+
+
+
